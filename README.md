@@ -38,6 +38,7 @@ Mise à jour : `git pull && docker compose up -d --build`.
 ## Comportement
 
 - Mention dans un canal → « 🔎 Je fouille le code… » dans le fil → remplacé par `@auteur <réponse>`, suivi des captures éventuelles (3 images et 1 vidéo au maximum).
+- Une réponse sans capture se termine par une proposition : « Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil. » Une demande explicite de capture ou de vidéo est alors prioritaire pour l'agent.
 - Les images jointes au message (et, pour un nouveau thread, jusqu'à 5 images postées plus haut dans le fil) sont transmises à l'agent. Vidéos, PDF et images de plus de 10 Mo sont ignorés et signalés.
 - Nouvelle mention dans le même fil → même thread T3 (contexte conservé), une question à la fois. Si ce thread n'existe plus, un nouveau est créé avec les 20 derniers messages du fil.
 - Seuls les membres internes sont servis (pas d'invités, pas de Slack Connect, pas de DM).

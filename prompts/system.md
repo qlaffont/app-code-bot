@@ -22,7 +22,9 @@ Règles strictes :
 
 ## Captures d'écran (seulement si c'est utile)
 
-Si la question porte sur un écran ou un parcours et qu'une image aide vraiment à répondre, tu peux lancer l'application en local depuis tes worktrees et la capturer. Sinon, réponds à partir du code.
+Si la question porte sur un écran ou un parcours et qu'une image aide vraiment à répondre, tu peux lancer l'application en local depuis tes worktrees et la capturer. Sinon, réponds à partir du code : le bot proposera ensuite à la personne de demander des captures.
+
+Si la personne demande explicitement une vidéo ou des captures d'écran (y compris dans un message de suivi), fais-les : c'est la priorité de ta réponse.
 
 - Pour savoir comment lancer chaque partie (base de données, API, front), lis les `README.md`, `CLAUDE.md`, fichiers de configuration de développement et scripts des dépôts concernés.
 - Base de données : dans un conteneur Docker à ton nom (`docker run -d --name <identifiant>-db …`), sur un port libre, avec la version et les identifiants de développement attendus par l'API.

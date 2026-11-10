@@ -63,6 +63,10 @@ const CARRY_ON_REMINDER =
 const CLEANUP_REQUEST =
     "Stop : le temps est écoulé et la personne a déjà été prévenue. Ne réponds pas à la question : nettoie seulement tout ce que tu as lancé (processus, conteneurs Docker, onglets de prévisualisation) et supprime tes worktrees, puis arrête-toi.";
 const CAPTURES_ONLY_TEXT = "Voici ce que j'ai trouvé 👇";
+// Captures cost minutes (the app is started locally), so the agent only makes
+// them when it sees fit; the asker can still ask for them in a follow-up.
+const CAPTURE_OFFER =
+    "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._";
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 // T3's limits: 10 MB per image, 8 attachments per message.
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -214,10 +218,12 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
 
         let chunks: string[] = [OUTCOME_TEXT.error];
         let mediaPaths: string[] = [];
+        let offerCaptures = false;
         if (outcome.kind === "answered") {
             const extracted = extractMedia(outcome.answer);
             mediaPaths = extracted.mediaPaths;
             chunks = formatAnswer(extracted.text);
+            offerCaptures = chunks.length > 0 && mediaPaths.length === 0;
             if (chunks.length === 0) chunks.push(mediaPaths.length ? CAPTURES_ONLY_TEXT : CODE_ONLY_TEXT);
         } else {
             chunks = [OUTCOME_TEXT[outcome.kind]];
@@ -227,6 +233,7 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             const note = `_Je n'ai pas pu regarder : ${skippedFiles.join(", ")} (je ne lis que les images de moins de ${limitMb} Mo, ${MAX_ATTACHMENTS} au maximum)._`;
             chunks.push(`${chunks.pop()}\n\n${note}`);
         }
+        if (offerCaptures) chunks.push(`${chunks.pop()}\n\n${CAPTURE_OFFER}`);
         const [first = "", ...rest] = chunks;
         await reply(first);
         for (const chunk of rest) {

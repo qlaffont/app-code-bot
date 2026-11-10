@@ -6,6 +6,10 @@ import { createThreadStore } from "../src/thread-store";
 import { FakeMediaReader, FakeSlack, FakeT3, internalMember, slackFile } from "./fakes";
 
 const SYSTEM_PROMPT = "Tu es AppCode.";
+const CAPTURE_OFFER =
+    "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._";
+/** An answer as posted when it came without captures. */
+const withOffer = (text: string) => `${text}\n\n${CAPTURE_OFFER}`;
 
 const mention = (overrides: Partial<Mention> = {}): Mention => ({
     eventId: `Ev${Math.random()}`,
@@ -64,7 +68,7 @@ describe("a question in a channel", () => {
         await handle(mention());
 
         expect(slack.posted[0]?.text).toBe("🔎 Je fouille le code…");
-        expect(slack.visibleTexts()).toEqual(["<@UASKER> C'est dans *billing*."]);
+        expect(slack.visibleTexts()).toEqual([withOffer("<@UASKER> C'est dans *billing*.")]);
         expect(slack.posted.every((message) => message.channel === "CDEV" && message.threadTs === "1000.1")).toBe(true);
     });
 
@@ -87,7 +91,7 @@ describe("a follow-up mention in the same Slack thread", () => {
         expect(t3.sent[0]?.threadId).toBe("thread-1");
         expect(t3.sent[0]?.message).toContain("Et pour les Avoirs ?");
         expect(t3.sent[0]?.message).not.toContain(SYSTEM_PROMPT);
-        expect(slack.visibleTexts().at(-1)).toBe("<@UASKER> Oui, aussi pour les avoirs.");
+        expect(slack.visibleTexts().at(-1)).toBe(withOffer("<@UASKER> Oui, aussi pour les avoirs."));
     });
 
     test("starts a new T3 thread with the Slack history when the previous one is gone", async () => {
@@ -104,7 +108,7 @@ describe("a follow-up mention in the same Slack thread", () => {
         expect(t3.launched).toHaveLength(2);
         expect(t3.launched[1]?.message).toStartWith(SYSTEM_PROMPT);
         expect(t3.launched[1]?.message).toContain("C'est dans billing.");
-        expect(slack.visibleTexts().at(-1)).toBe("<@UASKER> Réponse par défaut.");
+        expect(slack.visibleTexts().at(-1)).toBe(withOffer("<@UASKER> Réponse par défaut."));
 
         t3.script.push({ outcome: "completed", answer: "Troisième." });
         await handle(mention({ ts: "1000.9", threadTs: "1000.1", text: "<@UBOT> encore ?" }));
@@ -123,7 +127,7 @@ describe("two mentions arriving together in the same Slack thread", () => {
 
         expect(t3.launched).toHaveLength(1);
         expect(t3.sent.map((sent) => sent.threadId)).toEqual(["thread-1"]);
-        expect(slack.visibleTexts()).toEqual(["<@UASKER> Première.", "<@UASKER> Seconde."]);
+        expect(slack.visibleTexts()).toEqual([withOffer("<@UASKER> Première."), withOffer("<@UASKER> Seconde.")]);
     });
 });
 
@@ -251,7 +255,7 @@ describe("when T3 doesn't answer cleanly", () => {
         expect(t3.interrupted).toEqual(["run-2"]);
         expect(t3.sent).toHaveLength(1);
         expect(t3.sent[0]?.message).toContain("personne ne peut te répondre");
-        expect(slack.visibleTexts()).toEqual(["<@UASKER> Lu sans rien exécuter."]);
+        expect(slack.visibleTexts()).toEqual([withOffer("<@UASKER> Lu sans rien exécuter.")]);
     });
 
     test("an agent blocked twice gives up with an explanation", async () => {
@@ -343,7 +347,9 @@ describe("images posted with the question", () => {
 
         expect(t3.uploadedImages).toEqual(["ecran.png"]);
         expect(slack.visibleTexts()).toEqual([
-            "<@UASKER> Voilà.\n\n_Je n'ai pas pu regarder : demo.mp4, notes.pdf, enorme.png (je ne lis que les images de moins de 10 Mo, 8 au maximum)._",
+            withOffer(
+                "<@UASKER> Voilà.\n\n_Je n'ai pas pu regarder : demo.mp4, notes.pdf, enorme.png (je ne lis que les images de moins de 10 Mo, 8 au maximum)._",
+            ),
         ]);
     });
 
@@ -404,6 +410,23 @@ describe("images posted with the question", () => {
 });
 
 describe("captures produced by the agent", () => {
+    test("an answer without captures offers them, after any long answer's last part", async () => {
+        const paragraph = "a".repeat(2000);
+        t3.script.push({ outcome: "completed", answer: [paragraph, paragraph].join("\n\n") });
+
+        await handle(mention());
+
+        expect(slack.visibleTexts()).toEqual([`<@UASKER> ${paragraph}`, withOffer(paragraph)]);
+    });
+
+    test("errors and refusals don't offer captures", async () => {
+        t3.script.push({ outcome: "failed" });
+
+        await handle(mention());
+
+        expect(slack.visibleTexts()[0]).not.toContain("captures d'écran");
+    });
+
     test("are published in the Slack thread and their markers removed from the text", async () => {
         media.files.set("/t3/browser-artifacts/facture.png", "png");
         media.files.set("/t3/attachments/parcours.webm", "webm");

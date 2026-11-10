@@ -14,6 +14,7 @@ Pas de N8N dans le circuit (Q1). Les questions sont traitées en parallèle, san
 ## Slack
 
 - App dédiée « AppCode » (Q3), en **Socket Mode** avec `@slack/bolt` (Q2) : aucune URL publique. Manifest : `deploy/slack-app-manifest.yaml`.
+- `@slack/bolt` reste en **4.x** : Bolt 5 embarque `@slack/socket-mode` 3, qui envoie ses pings avec `ping()` du paquet `undici`, or Bun remplace `undici` par sa propre version sans `ping` (erreurs « Failed to send ping » et reconnexions). Bolt 4 utilise `@slack/socket-mode` 2, basé sur `ws`, que Bun gère complètement (pings et pongs vérifiés contre un faux serveur Slack).
 - Scopes : `app_mentions:read`, `chat:write`, `channels:history`, `groups:history`, `users:read`, et `channels:read`, `groups:read`, `im:read`, `mpim:read` pour connaître le type de conversation (`app_mention` ne le donne pas).
 - **Accès** (Q4) : membres internes uniquement. Refus poli pour les invités (`is_restricted`, `is_ultra_restricted`), les utilisateurs externes (`is_stranger`, autre `team_id`, ou `user_not_found`) et les DM, y compris de groupe. Une panne Slack pendant la vérification donne un message d'erreur, pas un refus. Les bots sont ignorés. Pas de liste blanche : le bot répond dans les canaux où il est invité.
 - **Fil** (Q26) : réponse dans le fil du message (`thread_ts` ou `ts`). Uniquement sur mention. Doublons d'événements ignorés (`event_id`). Les questions d'un même fil sont traitées l'une après l'autre (elles partagent le thread T3) ; des fils différents restent en parallèle.

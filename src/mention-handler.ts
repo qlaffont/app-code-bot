@@ -43,6 +43,15 @@ interface StartedRun {
 type Outcome = { kind: "answered"; answer: string } | { kind: "timeout" | "blocked" | "error" };
 
 const LOADING_TEXT = "🔎 Je fouille le code…";
+const CAPTURE_LOADING_TEXT = "🎬 Je lance l'application pour faire les captures, ça peut prendre plusieurs minutes…";
+const CAPTURE_REQUEST = /vid[ée]o|captures?\b|screen ?shots?|screenshot|copies? d'écran|enregistre|filme|\bgif\b/i;
+// Appended to the question: the asker explicitly wants captures, so time is no excuse.
+const CAPTURE_DIRECTIVE = [
+    "",
+    "Demande de capture : la personne veut explicitement une vidéo ou des captures d'écran.",
+    "Ici tu n'as pas de limite de temps : fais tout ce qu'il faut (installer les dépendances, compiler, lancer la base, l'API, le front et les services annexes utiles comme un serveur SMTP local), puis enregistre la vidéo ou les captures demandées.",
+    "N'abandonne pas pour une question de durée ou de préparation. Si c'est vraiment impossible, explique précisément ce qui bloque.",
+].join("\n");
 const REFUSAL_TEXT = "Désolé, je ne réponds qu'aux membres internes de l'équipe.";
 /** What to tell someone who may not ask; bots get no answer at all. */
 const REFUSAL_TEXTS: Record<Exclude<AccessDecision, { allowed: true }>["reason"], string | undefined> = {
@@ -133,7 +142,13 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             return;
         }
 
-        const loading = await slack.postMessage({ channel: mention.channel, threadTs: replyTs, text: LOADING_TEXT });
+        const wantsCaptures = CAPTURE_REQUEST.test(question);
+        const questionForAgent = wantsCaptures ? `${question}\n${CAPTURE_DIRECTIVE}` : question;
+        const loading = await slack.postMessage({
+            channel: mention.channel,
+            threadTs: replyTs,
+            text: wantsCaptures ? CAPTURE_LOADING_TEXT : LOADING_TEXT,
+        });
 
         const slackThreadKey = `${mention.channel}:${replyTs}`;
         const asker = `<@${mention.userId}> (${user.name})`;
@@ -165,7 +180,7 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             const fromThread = await attachImages(earlierImages.slice(0, MAX_ATTACHMENTS - asked.length));
             const launched = await t3.launchThread({
                 title: `Slack · ${user.name} · ${question.slice(0, 60)}`,
-                message: `${deps.systemPrompt}\n\n---\n\n${contextBlock}Question de ${asker} :\n${question}`,
+                message: `${deps.systemPrompt}\n\n---\n\n${contextBlock}Question de ${asker} :\n${questionForAgent}`,
                 attachments: [...asked, ...fromThread],
             });
             deps.store.set(slackThreadKey, launched.threadId);
@@ -176,7 +191,7 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             try {
                 const { runId } = await t3.sendMessage({
                     threadId,
-                    message: `Nouvelle question de ${asker} :\n${question}`,
+                    message: `Nouvelle question de ${asker} :\n${questionForAgent}`,
                     attachments: await attachAskedImages(),
                 });
                 return { threadId, runId };
@@ -197,7 +212,8 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
                 const existingThreadId = deps.store.get(slackThreadKey);
                 const started = existingThreadId ? await continueThread(existingThreadId) : await startNewThread();
                 threadId = started.threadId;
-                outcome = await awaitAnswer(started);
+                // A capture request runs as long as it takes.
+                outcome = await awaitAnswer(started, wantsCaptures ? Infinity : deps.answerTimeoutMs);
             } catch (error) {
                 log("error", "question failed", { error, eventId: mention.eventId, threadId });
                 outcome = { kind: "error" };
@@ -223,7 +239,7 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             const extracted = extractMedia(outcome.answer);
             mediaPaths = extracted.mediaPaths;
             chunks = formatAnswer(extracted.text);
-            offerCaptures = chunks.length > 0 && mediaPaths.length === 0;
+            offerCaptures = chunks.length > 0 && mediaPaths.length === 0 && !wantsCaptures;
             if (chunks.length === 0) chunks.push(mediaPaths.length ? CAPTURES_ONLY_TEXT : CODE_ONLY_TEXT);
         } else {
             chunks = [OUTCOME_TEXT[outcome.kind]];
@@ -284,8 +300,8 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
      * over MCP, so a stuck run is interrupted and the agent is told, once, to
      * carry on alone.
      */
-    async function awaitAnswer({ threadId, runId }: StartedRun): Promise<Outcome> {
-        const deadline = now() + deps.answerTimeoutMs;
+    async function awaitAnswer({ threadId, runId }: StartedRun, timeoutMs: number): Promise<Outcome> {
+        const deadline = now() + timeoutMs;
         let currentRunId = runId;
         let reminded = false;
         for (;;) {

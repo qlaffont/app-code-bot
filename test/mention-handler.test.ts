@@ -475,3 +475,45 @@ describe("captures produced by the agent", () => {
         expect(slack.uploaded[0]?.filenames).toEqual(["1.png", "a.webm", "2.png", "3.png"]);
     });
 });
+
+describe("a request for a video or screenshots", () => {
+    test("tells the agent to build and run the whole stack, whatever it takes", async () => {
+        await handle(mention({ text: "<@UBOT> fais-moi une vidéo du parcours mot de passe oublié" }));
+
+        expect(t3.launched[0]?.message).toContain("pas de limite de temps");
+        expect(t3.launched[0]?.message).toContain("fais-moi une vidéo du parcours mot de passe oublié");
+    });
+
+    test("also applies to a follow-up in the same thread", async () => {
+        await handle(mention());
+
+        await handle(mention({ ts: "1000.5", threadTs: "1000.1", text: "<@UBOT> Fait moi une vidéo du parcours" }));
+
+        expect(t3.sent[0]?.message).toContain("pas de limite de temps");
+    });
+
+    test("has no time limit", async () => {
+        t3.script.push({ outcome: "completed", answer: "Voilà la vidéo.", afterMs: 40 * 60_000 });
+
+        await handle(mention({ text: "<@UBOT> une capture d'écran de la page de connexion ?" }));
+
+        expect(t3.interrupted).toEqual([]);
+        expect(slack.visibleTexts()).toEqual(["<@UASKER> Voilà la vidéo."]);
+    });
+
+    test("warns the asker that it will take a while", async () => {
+        await handle(mention({ text: "<@UBOT> un screenshot de l'accueil" }));
+
+        expect(slack.posted[0]?.text).toBe(
+            "🎬 Je lance l'application pour faire les captures, ça peut prendre plusieurs minutes…",
+        );
+    });
+
+    test("ordinary questions keep the time limit", async () => {
+        t3.script.push({ outcome: "completed", answer: "Trop tard.", afterMs: 40 * 60_000 });
+
+        await handle(mention());
+
+        expect(t3.interrupted).toEqual(["run-2"]);
+    });
+});

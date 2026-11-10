@@ -78,7 +78,14 @@ export class FakeSlack implements SlackPort {
     }
 }
 
-type ScriptedRun = { outcome: RunOutcome; answer?: string } | { pending: true } | { running: true };
+type ScriptedRun =
+    | {
+          outcome: RunOutcome;
+          answer?: string;
+          /** Keeps running until this much time has been waited. */ afterMs?: number;
+      }
+    | { pending: true }
+    | { running: true };
 
 /**
  * A scripted T3: each run created (by launch or send) consumes the next scripted
@@ -135,7 +142,7 @@ export class FakeT3 implements T3Port {
 
     async waitForRun(input: { threadId: string; runId: string; timeoutMs: number }): Promise<RunOutcome | "running"> {
         const run = this.runs.get(input.runId);
-        if (!run || !("outcome" in run)) {
+        if (!run || !("outcome" in run) || this.elapsedMs < (run.afterMs ?? 0)) {
             this.elapsedMs += input.timeoutMs;
             return "running";
         }

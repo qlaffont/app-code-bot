@@ -38,11 +38,11 @@ Mise à jour : `git pull && docker compose up -d --build`.
 ## Comportement
 
 - Mention dans un canal → « 🔎 Je fouille le code… » dans le fil → remplacé par `@auteur <réponse>`, suivi des captures éventuelles (3 images et 1 vidéo au maximum).
-- Une réponse sans capture se termine par une proposition : « Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil. » Une demande explicite de capture ou de vidéo est alors prioritaire pour l'agent.
+- Une réponse sans capture se termine par une proposition : « Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil. » Une demande de capture ou de vidéo (message contenant « vidéo », « capture », « screenshot »…) n'a pas de limite de temps : l'agent doit construire et lancer toute la stack, et le bot prévient que ça peut prendre plusieurs minutes.
 - Les images jointes au message (et, pour un nouveau thread, jusqu'à 5 images postées plus haut dans le fil) sont transmises à l'agent. Vidéos, PDF et images de plus de 10 Mo sont ignorés et signalés.
 - Nouvelle mention dans le même fil → même thread T3 (contexte conservé), une question à la fois. Si ce thread n'existe plus, un nouveau est créé avec les 20 derniers messages du fil.
 - Seuls les membres internes sont servis (pas d'invités, pas de Slack Connect, pas de DM).
-- Au-delà de `ANSWER_TIMEOUT_MS` (8 min), le run est interrompu et l'auteur invité à reformuler.
+- Au-delà de `ANSWER_TIMEOUT_MS` (8 min), le run est interrompu et l'auteur invité à reformuler (sauf pour une demande de capture).
 - Si l'agent reste bloqué à attendre une réponse humaine, le bot l'interrompt et lui dit de continuer seul (une fois), puis abandonne.
 - Les blocs de code éventuels sont retirés de la réponse. Seuls les fichiers situés dans les dossiers de captures (T3 et `CAPTURES_DIR`) peuvent être publiés.
 - Le thread T3 est clôturé (*settled*) après chaque réponse ; une nouvelle question le rouvre.

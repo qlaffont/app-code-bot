@@ -19,7 +19,7 @@ export interface SlackConnection {
     workspaceTeamId: string;
     /** Posts an operational alert in the admin channel (logged only when none is set). */
     alertAdmin(text: string): Promise<void>;
-    /** Starts receiving `app_mention` events. */
+    /** Starts receiving `app_mention` events and 1:1 direct messages. */
     start(onMention: (mention: Mention) => Promise<void>): Promise<void>;
     stop(): Promise<void>;
 }
@@ -126,8 +126,9 @@ export async function connectSlack(config: SlackConfig): Promise<SlackConnection
             if (info?.is_mpim) return "mpim";
             return info?.is_private ? "group" : "channel";
         } catch (error) {
+            // Only 1:1 DM ids are recognizable: a group DM can't be told from a channel.
             log("warn", "conversations.info failed, guessing the channel type from its id", { error, channel });
-            return channel.startsWith("D") ? "im" : "channel";
+            return channel.startsWith("D") ? "im" : "unknown";
         }
     };
 
@@ -141,12 +142,21 @@ export async function connectSlack(config: SlackConfig): Promise<SlackConnection
             await app.client.chat.postMessage({ channel: config.adminChannel, text });
         },
         async start(onMention) {
+            const dispatch = (mention: Mention) => {
+                // Answering takes minutes: don't hold the event listener.
+                void onMention(mention).catch((error) =>
+                    log("error", "mention handler crashed", { error, eventId: mention.eventId }),
+                );
+            };
+            const eventIdOf = (body: object, fallback: string) =>
+                "event_id" in body && typeof body.event_id === "string" ? body.event_id : fallback;
+
             app.event("app_mention", async ({ event, body }) => {
                 if ("bot_id" in event && event.bot_id) return;
                 if ("edited" in event && event.edited) return;
                 if (!event.user) return;
-                const mention: Mention = {
-                    eventId: "event_id" in body && typeof body.event_id === "string" ? body.event_id : event.event_ts,
+                dispatch({
+                    eventId: eventIdOf(body, event.event_ts),
                     channel: event.channel,
                     channelType: await channelType(event.channel),
                     ts: event.ts,
@@ -154,11 +164,28 @@ export async function connectSlack(config: SlackConfig): Promise<SlackConnection
                     userId: event.user,
                     text: event.text,
                     files: toSlackFiles("files" in event ? event.files : undefined),
-                };
-                // Answering takes minutes: don't hold the event listener.
-                void onMention(mention).catch((error) =>
-                    log("error", "mention handler crashed", { error, eventId: mention.eventId }),
-                );
+                });
+            });
+
+            // Every message in a 1:1 DM with the bot, mentioning it or not.
+            app.event("message", async ({ event, body }) => {
+                if (event.channel_type !== "im") return;
+                // Edits, deletions and other system messages carry a subtype. Kept: image
+                // uploads, and thread replies also sent to the conversation.
+                const { subtype } = event;
+                if (subtype !== undefined && subtype !== "file_share" && subtype !== "thread_broadcast") return;
+                if ("bot_id" in event && event.bot_id) return;
+                if (!event.user || event.user === auth.user_id) return;
+                dispatch({
+                    eventId: eventIdOf(body, event.event_ts),
+                    channel: event.channel,
+                    channelType: "im",
+                    ts: event.ts,
+                    threadTs: event.thread_ts,
+                    userId: event.user,
+                    text: event.text ?? "",
+                    files: toSlackFiles("files" in event ? event.files : undefined),
+                });
             });
             await app.start();
             log("info", "connected to Slack", { botUserId: auth.user_id, team: auth.team_id });

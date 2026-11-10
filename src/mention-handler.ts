@@ -7,14 +7,14 @@ import { log } from "./log";
 import { SlackUserNotFoundError, type SlackFile, type SlackPort } from "./slack-port";
 import { T3ThreadGoneError, type T3Attachment, type T3Port } from "./t3-port";
 
-/** An `app_mention` event, reduced to what the bot uses. */
+/** A message the bot is asked (an `app_mention`, or a 1:1 direct message), reduced to what the bot uses. */
 export interface Mention {
     eventId: string;
     channel: string;
     channelType: string;
-    /** Timestamp of the mentioning message. */
+    /** Timestamp of the message asking. */
     ts: string;
-    /** Set when the mention was posted inside an existing Slack thread. */
+    /** Set when the message was posted inside an existing Slack thread. */
     threadTs?: string;
     userId: string;
     text: string;
@@ -59,10 +59,13 @@ const REFUSAL_TEXT = "Désolé, je ne réponds qu'aux membres internes de l'équ
 const REFUSAL_TEXTS: Record<Exclude<AccessDecision, { allowed: true }>["reason"], string | undefined> = {
     guest: REFUSAL_TEXT,
     external: REFUSAL_TEXT,
-    direct_message: "Je ne réponds que dans les canaux : mentionne-moi dans un canal 🙂",
     bot: undefined,
 };
-const EMPTY_QUESTION_TEXT = "Pose-moi ta question juste après la mention 🙂";
+/** In a 1:1 DM, every message goes to the bot: no mention to speak of. */
+const EMPTY_QUESTION_TEXT = {
+    mention: "Pose-moi ta question juste après la mention 🙂",
+    dm: "Écris-moi ta question 🙂",
+};
 const CODE_ONLY_TEXT = "Ma réponse ne contenait que du code, que je ne peux pas partager. Reformule ta question.";
 const OUTCOME_TEXT = {
     timeout: "❌ Je n'ai pas réussi à répondre à temps, reformule ou précise ta question.",
@@ -76,8 +79,11 @@ const CLEANUP_REQUEST =
 const CAPTURES_ONLY_TEXT = "Voici ce que j'ai trouvé 👇";
 // Captures cost minutes (the app is started locally), so the agent only makes
 // them when it sees fit; the asker can still ask for them in a follow-up.
-const CAPTURE_OFFER =
-    "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._";
+const CAPTURE_OFFER = {
+    mention:
+        "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._",
+    dm: "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi dans ce fil._",
+};
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 // T3's limits: 10 MB per image, 8 attachments per message.
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -87,12 +93,14 @@ const MAX_EARLIER_IMAGES = 5;
 const MAX_PUBLISHED = { image: 3, video: 1 } as const;
 const MEDIA_MARKER = /^[ \t]*\[\[media:\s*(.+?)\s*\]\][ \t]*$/gm;
 const HISTORY_LIMIT = 20;
-const SEEN_EVENTS_LIMIT = 1000;
+const SEEN_MESSAGES_LIMIT = 1000;
+/** Public and private channels, and 1:1 DMs. */
+const ANSWERED_CONVERSATIONS = new Set(["channel", "group", "im"]);
 
 export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mention) => Promise<void> {
     const { slack, t3 } = deps;
     const now = deps.now ?? Date.now;
-    const seenEventIds = new Set<string>();
+    const seenMessages = new Set<string>();
     const busySlackThreads = new Map<string, Promise<unknown>>();
 
     /** Runs `task` after every earlier task queued under the same key. */
@@ -107,40 +115,49 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
     };
 
     return async (mention) => {
-        // Slack retries deliveries it thinks were lost.
-        if (seenEventIds.has(mention.eventId)) return;
-        seenEventIds.add(mention.eventId);
-        if (seenEventIds.size > SEEN_EVENTS_LIMIT) {
-            const [oldest] = seenEventIds;
-            if (oldest) seenEventIds.delete(oldest);
+        // Slack retries deliveries it thinks were lost, and a mention inside a
+        // DM arrives both as an app_mention and as a message.im event.
+        const messageKey = `${mention.channel}:${mention.ts}`;
+        if (seenMessages.has(messageKey)) return;
+        seenMessages.add(messageKey);
+        if (seenMessages.size > SEEN_MESSAGES_LIMIT) {
+            const [oldest] = seenMessages;
+            if (oldest) seenMessages.delete(oldest);
         }
+
+        // Never in group DMs, which may include people who must not read the
+        // answers, nor where Slack couldn't say what the conversation is.
+        if (!ANSWERED_CONVERSATIONS.has(mention.channelType)) return;
 
         const replyTs = mention.threadTs ?? mention.ts;
         const reply = (text: string) =>
             slack.postMessage({ channel: mention.channel, threadTs: replyTs, text: `<@${mention.userId}> ${text}` });
+        const isDirectMessage = mention.channelType === "im";
+        const wording = isDirectMessage ? "dm" : "mention";
+        // In a 1:1 DM, whoever may not ask gets no answer at all.
+        const refuse = (text: string | undefined) => (text && !isDirectMessage ? reply(text) : Promise.resolve());
 
         let user: SlackUser;
         try {
             user = await slack.getUser(mention.userId);
         } catch (error) {
             if (error instanceof SlackUserNotFoundError) {
-                await reply(REFUSAL_TEXT);
+                await refuse(REFUSAL_TEXT);
             } else {
                 log("error", "could not look up the asker", { error, eventId: mention.eventId });
                 await reply(OUTCOME_TEXT.error);
             }
             return;
         }
-        const access = checkAccess({ user, channelType: mention.channelType, workspaceTeamId: deps.workspaceTeamId });
+        const access = checkAccess({ user, workspaceTeamId: deps.workspaceTeamId });
         if (!access.allowed) {
-            const refusal = REFUSAL_TEXTS[access.reason];
-            if (refusal) await reply(refusal);
+            await refuse(REFUSAL_TEXTS[access.reason]);
             return;
         }
 
         const question = stripMention(mention.text, deps.botUserId);
         if (!question) {
-            await reply(EMPTY_QUESTION_TEXT);
+            await reply(EMPTY_QUESTION_TEXT[wording]);
             return;
         }
 
@@ -251,7 +268,7 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             const note = `_Je n'ai pas pu regarder : ${skippedFiles.join(", ")} (je ne lis que les images de moins de ${limitMb} Mo, ${MAX_ATTACHMENTS} au maximum)._`;
             chunks.push(`${chunks.pop()}\n\n${note}`);
         }
-        if (offerCaptures) chunks.push(`${chunks.pop()}\n\n${CAPTURE_OFFER}`);
+        if (offerCaptures) chunks.push(`${chunks.pop()}\n\n${CAPTURE_OFFER[wording]}`);
         const [first = "", ...rest] = chunks;
         await reply(first);
         for (const chunk of rest) {

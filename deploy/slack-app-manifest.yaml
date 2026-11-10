@@ -4,6 +4,10 @@ display_information:
   description: Répond aux questions sur le code de l'application (sans jamais partager de code).
   background_color: "#1f2937"
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: AppCode
     always_online: true
@@ -18,6 +22,7 @@ oauth_config:
       - channels:read
       - groups:history
       - groups:read
+      - im:history
       - im:read
       - mpim:read
       - users:read
@@ -25,6 +30,7 @@ settings:
   event_subscriptions:
     bot_events:
       - app_mention
+      - message.im
   interactivity:
     is_enabled: false
   org_deploy_enabled: false

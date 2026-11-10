@@ -12,14 +12,11 @@ export interface SlackUser {
     isStranger: boolean;
 }
 
-export type AccessDecision =
-    | { allowed: true }
-    | { allowed: false; reason: "guest" | "external" | "bot" | "direct_message" };
+export type AccessDecision = { allowed: true } | { allowed: false; reason: "guest" | "external" | "bot" };
 
-/** Only internal members may ask questions, and only in channels (never in DMs). */
-export function checkAccess(input: { user: SlackUser; channelType: string; workspaceTeamId: string }): AccessDecision {
-    const { user, channelType, workspaceTeamId } = input;
-    if (channelType === "im" || channelType === "mpim") return { allowed: false, reason: "direct_message" };
+/** Only internal members may ask questions. */
+export function checkAccess(input: { user: SlackUser; workspaceTeamId: string }): AccessDecision {
+    const { user, workspaceTeamId } = input;
     if (user.isBot) return { allowed: false, reason: "bot" };
     if (user.isStranger || user.teamId !== workspaceTeamId) return { allowed: false, reason: "external" };
     if (user.isRestricted || user.isUltraRestricted) return { allowed: false, reason: "guest" };

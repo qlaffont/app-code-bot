@@ -21,6 +21,9 @@ const mention = (overrides: Partial<Mention> = {}): Mention => ({
     files: [],
     ...overrides,
 });
+/** A message written to the bot in a 1:1 direct message. */
+const dm = (overrides: Partial<Mention> = {}): Mention =>
+    mention({ channel: "DASKER", channelType: "im", text: "comment est calculée la facture ?", ...overrides });
 
 let slack: FakeSlack;
 let t3: FakeT3;
@@ -191,13 +194,70 @@ describe("who can ask", () => {
         expect(slack.visibleTexts()).toEqual(["<@UASKER> ❌ Une erreur est survenue, réessaie dans un moment."]);
     });
 
-    test("a direct message is redirected to channels", async () => {
-        await handle(mention({ channelType: "im" }));
+    test("an internal member's direct message, without a mention, is answered in a thread under it", async () => {
+        t3.script.push({ outcome: "completed", answer: "C'est dans billing." });
+
+        await handle(dm());
+
+        expect(t3.launched).toHaveLength(1);
+        expect(t3.launched[0]?.message).toContain("comment est calculée la facture ?");
+        expect(slack.visibleTexts()).toEqual([
+            "<@UASKER> C'est dans billing.\n\n_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi dans ce fil._",
+        ]);
+        expect(slack.posted.every((message) => message.channel === "DASKER" && message.threadTs === "1000.1")).toBe(
+            true,
+        );
+    });
+
+    test("an empty direct message asks for the question without speaking of a mention", async () => {
+        await handle(dm({ text: "" }));
 
         expect(t3.launched).toHaveLength(0);
-        expect(slack.visibleTexts()).toEqual([
-            "<@UASKER> Je ne réponds que dans les canaux : mentionne-moi dans un canal 🙂",
-        ]);
+        expect(slack.visibleTexts()).toEqual(["<@UASKER> Écris-moi ta question 🙂"]);
+    });
+
+    test.each([
+        ["a guest", "UGUEST", { isRestricted: true }],
+        ["someone from another organization", "UEXT", { teamId: "TOTHER" }],
+        ["a user Slack can't describe", "UUNKNOWN", undefined],
+    ])("%s writing in a direct message is ignored silently", async (_label, userId, overrides) => {
+        if (overrides) slack.users.set(userId, { ...internalMember(userId, "Gus"), ...overrides });
+
+        await handle(dm({ userId }));
+
+        expect(t3.launched).toHaveLength(0);
+        expect(slack.posted).toHaveLength(0);
+    });
+
+    test("a Slack outage while checking who writes in a direct message is reported as an error", async () => {
+        slack.failGetUser = true;
+
+        await handle(dm());
+
+        expect(t3.launched).toHaveLength(0);
+        expect(slack.visibleTexts()).toEqual(["<@UASKER> ❌ Une erreur est survenue, réessaie dans un moment."]);
+    });
+
+    test("a group direct message is ignored silently, even from an internal member", async () => {
+        await handle(mention({ channel: "GGROUP", channelType: "mpim" }));
+
+        expect(t3.launched).toHaveLength(0);
+        expect(slack.posted).toHaveLength(0);
+    });
+
+    test("a group direct message is ignored silently even when Slack can't say who wrote it", async () => {
+        slack.failGetUser = true;
+
+        await handle(mention({ channel: "GGROUP", channelType: "mpim" }));
+
+        expect(slack.posted).toHaveLength(0);
+    });
+
+    test("a conversation Slack couldn't describe is ignored silently: it may be a group direct message", async () => {
+        await handle(mention({ channel: "GMAYBE", channelType: "unknown" }));
+
+        expect(t3.launched).toHaveLength(0);
+        expect(slack.posted).toHaveLength(0);
     });
 
     test("bots are ignored silently", async () => {
@@ -309,6 +369,15 @@ describe("Slack delivering the same event twice", () => {
         const event = mention({ eventId: "Ev1" });
 
         await Promise.all([handle(event), handle(event)]);
+
+        expect(t3.launched).toHaveLength(1);
+        expect(slack.visibleTexts()).toHaveLength(1);
+    });
+
+    test("is answered once when one message arrives as two events (a mention inside a direct message)", async () => {
+        const text = "<@UBOT> comment est calculée la facture ?";
+
+        await Promise.all([handle(dm({ eventId: "EvMention", text })), handle(dm({ eventId: "EvMessage", text }))]);
 
         expect(t3.launched).toHaveLength(1);
         expect(slack.visibleTexts()).toHaveLength(1);

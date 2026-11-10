@@ -1,6 +1,6 @@
 # app-code-bot
 
-Bot Slack **AppCode** : on le mentionne avec une question sur l'application (avec des captures d'écran si besoin). Il lance un thread T3 Code sur le projet qui contient le code. L'agent lit le code dans des worktrees jetables, lance au besoin l'application en local pour en faire des captures, puis le bot poste la réponse et les captures dans le fil Slack, **sans jamais partager de code**.
+Bot Slack **AppCode** : on le mentionne (ou on lui écrit en message privé) avec une question sur l'application (avec des captures d'écran si besoin). Il lance un thread T3 Code sur le projet qui contient le code. L'agent lit le code dans des worktrees jetables, lance au besoin l'application en local pour en faire des captures, puis le bot poste la réponse et les captures dans le fil Slack, **sans jamais partager de code**.
 
 ```
 Slack (Socket Mode) ──► app-code-bot (Bun, Docker) ──► T3 /mcp ──► agent Claude (full-access, worktrees jetables)
@@ -17,6 +17,7 @@ Les décisions de conception sont dans [docs/SPEC.md](docs/SPEC.md).
    - `SLACK_BOT_TOKEN` : *OAuth & Permissions* → *Bot User OAuth Token* (`xoxb-…`).
    - `SLACK_APP_TOKEN` : *Basic Information* → *App-Level Tokens* → jeton avec le scope `connections:write` (`xapp-…`).
    - Invitez `@AppCode` dans les canaux où il doit répondre, et dans le canal d'alertes (`SLACK_ADMIN_CHANNEL`).
+   - App déjà installée avec une version antérieure du manifest : recollez-le (*App Manifest*) puis réinstallez l'app pour accorder `im:history` et ouvrir l'onglet *Messages*, sans quoi le bot ne reçoit pas les messages privés.
 2. **Jeton racine T3.** Le bot s'en sert pour se fabriquer tout seul, chaque mois, un jeton `full-access` (flux OAuth approuvé par code d'appairage). Sur la machine T3 :
    ```sh
    t3 auth session issue --label app-code-bot-root --ttl 3650d --token-only \
@@ -38,10 +39,10 @@ Mise à jour : `git pull && docker compose up -d --build`.
 ## Comportement
 
 - Mention dans un canal → « 🔎 Je fouille le code… » dans le fil → remplacé par `@auteur <réponse>`, suivi des captures éventuelles (3 images et 1 vidéo au maximum). Les vidéos sont réencodées par le bot (ffmpeg) en H.264 1920x1080, 30 images/s, environ 8 Mbit/s.
-- Une réponse sans capture se termine par une proposition : « Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil. » Une demande de capture ou de vidéo (message contenant « vidéo », « capture », « screenshot »…) n'a pas de limite de temps : l'agent doit construire et lancer toute la stack, et le bot prévient que ça peut prendre plusieurs minutes.
+- Une réponse sans capture se termine par une proposition : « Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil. » (en message privé : « indique-le-moi dans ce fil ») Une demande de capture ou de vidéo (message contenant « vidéo », « capture », « screenshot »…) n'a pas de limite de temps : l'agent doit construire et lancer toute la stack, et le bot prévient que ça peut prendre plusieurs minutes.
 - Les images jointes au message (et, pour un nouveau thread, jusqu'à 5 images postées plus haut dans le fil) sont transmises à l'agent. Vidéos, PDF et images de plus de 10 Mo sont ignorés et signalés.
 - Nouvelle mention dans le même fil → même thread T3 (contexte conservé), une question à la fois. Si ce thread n'existe plus, un nouveau est créé avec les 20 derniers messages du fil.
-- Seuls les membres internes sont servis (pas d'invités, pas de Slack Connect, pas de DM).
+- Seuls les membres internes sont servis (pas d'invités, pas de Slack Connect). En message privé 1:1, inutile de le mentionner : chaque message est une question, et la réponse arrive dans un fil sous le message. Les invités et externes qui lui écrivent en privé n'ont aucune réponse ; les messages privés de groupe sont ignorés.
 - Au-delà de `ANSWER_TIMEOUT_MS` (8 min), le run est interrompu et l'auteur invité à reformuler (sauf pour une demande de capture).
 - Si l'agent reste bloqué à attendre une réponse humaine, le bot l'interrompt et lui dit de continuer seul (une fois), puis abandonne.
 - Les blocs de code éventuels sont retirés de la réponse. Seuls les fichiers situés dans les dossiers de captures (T3 et `CAPTURES_DIR`) peuvent être publiés.

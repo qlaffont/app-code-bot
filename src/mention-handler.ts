@@ -54,6 +54,12 @@ const CAPTURE_DIRECTIVE = [
     "Ici tu n'as pas de limite de temps : fais tout ce qu'il faut (installer les dépendances, compiler, lancer la base, l'API, le front et les services annexes utiles comme un serveur SMTP local), puis enregistre la vidéo ou les captures demandées.",
     "N'abandonne pas pour une question de durée ou de préparation. Si c'est vraiment impossible, explique précisément ce qui bloque.",
 ].join("\n");
+// Narrow on purpose: support and sales often speak of a "problème technique" or a "code promo".
+const TECHNICAL_REQUEST =
+    /d[ée]tails? techniques?|techniquement|(?:niveau|version|explications?|r[ée]ponse|c[ôo]t[ée]) techniques?|c[ôo]t[ée] code|dans le code(?! promo)|code source|pour (?:un|les) d[ée]vs?\b|technical details?/i;
+// Appended to the question: the default answer avoids technical words, this one is for the code.
+const TECHNICAL_DIRECTIVE =
+    "\nDemande de détail technique : la personne veut le détail technique. Réponds comme indiqué dans « Réponse technique (sur demande) » : dépôts, fichiers, fonctions, tables ou API entre backticks, branche consultée, toujours aucun extrait de code.";
 const REFUSAL_TEXT = "Désolé, je ne réponds qu'aux membres internes de l'équipe.";
 /** What to tell someone who may not ask; bots get no answer at all. */
 const REFUSAL_TEXTS: Record<Exclude<AccessDecision, { allowed: true }>["reason"], string | undefined> = {
@@ -77,12 +83,15 @@ const CARRY_ON_REMINDER =
 const CLEANUP_REQUEST =
     "Stop : le temps est écoulé et la personne a déjà été prévenue. Ne réponds pas à la question : nettoie seulement tout ce que tu as lancé (processus, conteneurs Docker, onglets de prévisualisation) et supprime tes worktrees, puis arrête-toi.";
 const CAPTURES_ONLY_TEXT = "Voici ce que j'ai trouvé 👇";
-// Captures cost minutes (the app is started locally), so the agent only makes
-// them when it sees fit; the asker can still ask for them in a follow-up.
-const CAPTURE_OFFER = {
-    mention:
-        "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._",
-    dm: "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi dans ce fil._",
+// The default answer is for support and sales, and captures cost minutes (the
+// app is started locally): the asker gets both on request, in a follow-up.
+const OFFER_ITEMS = {
+    technical: "le détail technique",
+    captures: "une vidéo ou des captures d'écran du parcours",
+};
+const OFFER_ENDING = {
+    mention: "indique-le-moi en me mentionnant dans ce fil",
+    dm: "indique-le-moi dans ce fil",
 };
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 // T3's limits: 10 MB per image, 8 attachments per message.
@@ -162,7 +171,12 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
         }
 
         const wantsCaptures = CAPTURE_REQUEST.test(question);
-        const questionForAgent = wantsCaptures ? `${question}\n${CAPTURE_DIRECTIVE}` : question;
+        const wantsTechnical = TECHNICAL_REQUEST.test(question);
+        const questionForAgent = [
+            question,
+            ...(wantsCaptures ? [CAPTURE_DIRECTIVE] : []),
+            ...(wantsTechnical ? [TECHNICAL_DIRECTIVE] : []),
+        ].join("\n");
         const loading = await slack.postMessage({
             channel: mention.channel,
             threadTs: replyTs,
@@ -253,12 +267,14 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
 
         let chunks: string[] = [OUTCOME_TEXT.error];
         let mediaPaths: string[] = [];
-        let offerCaptures = false;
+        const offers: string[] = [];
         if (outcome.kind === "answered") {
             const extracted = extractMedia(outcome.answer);
             mediaPaths = extracted.mediaPaths;
             chunks = formatAnswer(extracted.text);
-            offerCaptures = chunks.length > 0 && mediaPaths.length === 0 && !wantsCaptures;
+            const hasText = chunks.length > 0;
+            if ((hasText || mediaPaths.length) && !wantsTechnical) offers.push(OFFER_ITEMS.technical);
+            if (hasText && mediaPaths.length === 0 && !wantsCaptures) offers.push(OFFER_ITEMS.captures);
             if (chunks.length === 0) chunks.push(mediaPaths.length ? CAPTURES_ONLY_TEXT : CODE_ONLY_TEXT);
         } else {
             chunks = [OUTCOME_TEXT[outcome.kind]];
@@ -268,7 +284,8 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             const note = `_Je n'ai pas pu regarder : ${skippedFiles.join(", ")} (je ne lis que les images de moins de ${limitMb} Mo, ${MAX_ATTACHMENTS} au maximum)._`;
             chunks.push(`${chunks.pop()}\n\n${note}`);
         }
-        if (offerCaptures) chunks.push(`${chunks.pop()}\n\n${CAPTURE_OFFER[wording]}`);
+        if (offers.length)
+            chunks.push(`${chunks.pop()}\n\n_Si tu souhaites ${offers.join(", ")}, ${OFFER_ENDING[wording]}._`);
         const [first = "", ...rest] = chunks;
         await reply(first);
         for (const chunk of rest) {

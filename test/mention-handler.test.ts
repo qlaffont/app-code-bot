@@ -6,10 +6,17 @@ import { createThreadStore } from "../src/thread-store";
 import { FakeMediaReader, FakeSlack, FakeT3, internalMember, slackFile } from "./fakes";
 
 const SYSTEM_PROMPT = "Tu es AppCode.";
-const CAPTURE_OFFER =
+const OFFER =
+    "_Si tu souhaites le détail technique, une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._";
+/** A default answer as posted when it came without captures. */
+const withOffer = (text: string) => `${text}\n\n${OFFER}`;
+const TECHNICAL_OFFER = "_Si tu souhaites le détail technique, indique-le-moi en me mentionnant dans ce fil._";
+/** A default answer as posted when it came with captures, or after asking for them. */
+const withTechnicalOffer = (text: string) => `${text}\n\n${TECHNICAL_OFFER}`;
+const CAPTURES_OFFER =
     "_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil._";
-/** An answer as posted when it came without captures. */
-const withOffer = (text: string) => `${text}\n\n${CAPTURE_OFFER}`;
+/** A technical answer as posted when it came without captures. */
+const withCapturesOffer = (text: string) => `${text}\n\n${CAPTURES_OFFER}`;
 
 const mention = (overrides: Partial<Mention> = {}): Mention => ({
     eventId: `Ev${Math.random()}`,
@@ -202,7 +209,7 @@ describe("who can ask", () => {
         expect(t3.launched).toHaveLength(1);
         expect(t3.launched[0]?.message).toContain("comment est calculée la facture ?");
         expect(slack.visibleTexts()).toEqual([
-            "<@UASKER> C'est dans billing.\n\n_Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi dans ce fil._",
+            "<@UASKER> C'est dans billing.\n\n_Si tu souhaites le détail technique, une vidéo ou des captures d'écran du parcours, indique-le-moi dans ce fil._",
         ]);
         expect(slack.posted.every((message) => message.channel === "DASKER" && message.threadTs === "1000.1")).toBe(
             true,
@@ -494,12 +501,33 @@ describe("captures produced by the agent", () => {
         expect(slack.visibleTexts()).toEqual([`<@UASKER> ${paragraph}`, withOffer(paragraph)]);
     });
 
-    test("errors and refusals don't offer captures", async () => {
+    test("an answer with captures still offers the technical detail", async () => {
+        media.files.set("/t3/browser-artifacts/facture.png", "png");
+        t3.script.push({
+            outcome: "completed",
+            answer: "Voici l'écran de facturation.\n[[media: /t3/browser-artifacts/facture.png]]",
+        });
+
+        await handle(mention());
+
+        expect(slack.visibleTexts()).toEqual([withTechnicalOffer("<@UASKER> Voici l'écran de facturation.")]);
+    });
+
+    test("an answer made only of captures still offers the technical detail", async () => {
+        media.files.set("/t3/browser-artifacts/facture.png", "png");
+        t3.script.push({ outcome: "completed", answer: "[[media: /t3/browser-artifacts/facture.png]]" });
+
+        await handle(mention());
+
+        expect(slack.visibleTexts()).toEqual([withTechnicalOffer("<@UASKER> Voici ce que j'ai trouvé 👇")]);
+    });
+
+    test("errors and refusals offer nothing", async () => {
         t3.script.push({ outcome: "failed" });
 
         await handle(mention());
 
-        expect(slack.visibleTexts()[0]).not.toContain("captures d'écran");
+        expect(slack.visibleTexts()[0]).not.toContain("Si tu souhaites");
     });
 
     test("are published in the Slack thread and their markers removed from the text", async () => {
@@ -512,7 +540,7 @@ describe("captures produced by the agent", () => {
 
         await handle(mention());
 
-        expect(slack.visibleTexts()).toEqual(["<@UASKER> Voici l'écran de facturation."]);
+        expect(slack.visibleTexts()).toEqual([withTechnicalOffer("<@UASKER> Voici l'écran de facturation.")]);
         expect(slack.uploaded).toEqual([
             {
                 channel: "CDEV",
@@ -541,7 +569,7 @@ describe("captures produced by the agent", () => {
 
         await handle(mention());
 
-        expect(slack.visibleTexts()).toEqual(["<@UASKER> Réponse."]);
+        expect(slack.visibleTexts()).toEqual([withTechnicalOffer("<@UASKER> Réponse.")]);
         expect(slack.uploaded[0]?.filenames).toEqual(["ok.png"]);
     });
 
@@ -558,6 +586,64 @@ describe("captures produced by the agent", () => {
         await handle(mention());
 
         expect(slack.uploaded[0]?.filenames).toEqual(["1.png", "a.mp4", "2.png", "3.png"]);
+    });
+});
+
+describe("a request for the technical detail", () => {
+    test("tells the agent, in a follow-up, to answer at the technical level", async () => {
+        await handle(mention());
+
+        await handle(
+            mention({ ts: "1000.5", threadTs: "1000.1", text: "<@UBOT> tu peux me donner le détail technique ?" }),
+        );
+
+        expect(t3.sent[0]?.message).toContain("Demande de détail technique");
+    });
+
+    test("is understood however it is worded", async () => {
+        for (const [ts, text] of [
+            ["1000.1", "<@UBOT> Techniquement, comment ça marche ?"],
+            ["1000.2", "<@UBOT> c'est où dans le code ?"],
+            ["1000.3", "<@UBOT> la version technique stp"],
+        ] as const) {
+            await handle(mention({ ts, text }));
+        }
+
+        expect(t3.launched.map((thread) => thread.message.includes("Demande de détail technique"))).toEqual([
+            true,
+            true,
+            true,
+        ]);
+    });
+
+    test("isn't assumed for an ordinary question, even one mentioning tech support or a promo code", async () => {
+        for (const [ts, text] of [
+            ["1000.1", "<@UBOT> comment est calculée la facture ?"],
+            ["1000.2", "<@UBOT> le client a un problème technique à la connexion, que faire ?"],
+            ["1000.3", "<@UBOT> comment joindre le support technique ?"],
+            ["1000.4", "<@UBOT> où saisir le pourcentage dans le code promo ?"],
+        ] as const) {
+            await handle(mention({ ts, text }));
+        }
+
+        expect(t3.launched.some((thread) => thread.message.includes("Demande de détail technique"))).toBe(false);
+    });
+
+    test("is answered without offering the technical detail again", async () => {
+        t3.script.push({ outcome: "completed", answer: "C'est `computeTotal` dans `billing/invoice.service.ts`." });
+
+        await handle(mention({ text: "<@UBOT> comment est calculée la facture côté code ?" }));
+
+        expect(slack.visibleTexts()).toEqual([
+            withCapturesOffer("<@UASKER> C'est `computeTotal` dans `billing/invoice.service.ts`."),
+        ]);
+    });
+
+    test("can come with a request for captures", async () => {
+        await handle(mention({ text: "<@UBOT> une vidéo du parcours et le détail technique" }));
+
+        expect(t3.launched[0]?.message).toContain("Demande de détail technique");
+        expect(t3.launched[0]?.message).toContain("pas de limite de temps");
     });
 });
 
@@ -583,7 +669,7 @@ describe("a request for a video or screenshots", () => {
         await handle(mention({ text: "<@UBOT> une capture d'écran de la page de connexion ?" }));
 
         expect(t3.interrupted).toEqual([]);
-        expect(slack.visibleTexts()).toEqual(["<@UASKER> Voilà la vidéo."]);
+        expect(slack.visibleTexts()).toEqual([withTechnicalOffer("<@UASKER> Voilà la vidéo.")]);
     });
 
     test("warns the asker that it will take a while", async () => {

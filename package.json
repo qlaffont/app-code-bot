@@ -1,0 +1,26 @@
+{
+  "name": "app-code-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "lint": "oxlint --fix src test && oxfmt --write src test",
+    "lint:ci": "oxlint --quiet src test && oxfmt --check src test && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@slack/bolt": "^5.1.0",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "drizzle-kit": "^0.31.11",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
+    "typescript": "^7.0.2"
+  }
+}

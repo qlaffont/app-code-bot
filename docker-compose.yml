@@ -1,0 +1,18 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # T3 listens on the host's loopback; Socket Mode needs no inbound port.
+    network_mode: host
+    volumes:
+      - bot-data:/data
+      # Edit the prompt without rebuilding: restart the container to reload it.
+      - ./prompts:/app/prompts:ro
+      # The agent's captures, mounted at the same paths so the agent's paths resolve.
+      - ${T3_USERDATA_DIR:?set T3_USERDATA_DIR in .env}/attachments:${T3_USERDATA_DIR}/attachments:ro
+      - ${T3_USERDATA_DIR}/browser-artifacts:${T3_USERDATA_DIR}/browser-artifacts:ro
+      - ${CAPTURES_DIR:?set CAPTURES_DIR in .env}:${CAPTURES_DIR}:ro
+
+volumes:
+  bot-data:

@@ -1,0 +1,32 @@
+# Slack → Your Apps → Create New App → From a manifest → paste this file.
+display_information:
+  name: AppCode
+  description: Répond aux questions sur le code de l'application (sans jamais partager de code).
+  background_color: "#1f2937"
+features:
+  bot_user:
+    display_name: AppCode
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - files:read
+      - files:write
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:read
+      - mpim:read
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

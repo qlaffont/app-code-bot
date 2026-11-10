@@ -4,7 +4,8 @@ export interface Config {
     slackAdminChannel?: string;
     t3Url: string;
     t3RootToken: string;
-    t3ProjectId: string;
+    /** T3 project id or title. */
+    t3Project: string;
     t3ProviderInstanceId: string;
     t3Model: string;
     t3Effort: string;
@@ -32,7 +33,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         slackAdminChannel: env.SLACK_ADMIN_CHANNEL?.trim() || undefined,
         t3Url: optional("T3_URL", "http://127.0.0.1:3773"),
         t3RootToken: required("T3_ROOT_TOKEN"),
-        t3ProjectId: required("T3_PROJECT_ID"),
+        t3Project: required("T3_PROJECT_ID"),
         t3ProviderInstanceId: optional("T3_PROVIDER_INSTANCE", "claudeAgent"),
         t3Model: optional("T3_MODEL", "claude-sonnet-5-5"),
         t3Effort: optional("T3_EFFORT", "high"),

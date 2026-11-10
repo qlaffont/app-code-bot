@@ -24,7 +24,7 @@ Les décisions de conception sont dans [docs/SPEC.md](docs/SPEC.md).
      --scope settings:write --scope source-control:write
    ```
    C'est l'identifiant le plus sensible du système : il ne doit vivre que dans `.env` sur cette machine.
-3. **Projet T3.** `T3_PROJECT_ID` est l'id du projet T3 qui contient les dépôts de l'application (`t3 project list`).
+3. **Projet T3.** `T3_PROJECT_ID` est l'id ou le nom du projet T3 qui contient les dépôts de l'application (`t3 project list`).
 4. **Captures.** Dans les réglages T3, activez l'accès navigateur pour les agents (*enableAgentBrowserAccess*). Créez le dossier `CAPTURES_DIR`, accessible en écriture par l'utilisateur qui fait tourner T3 : l'agent y dépose ses captures Playwright quand les outils navigateur de T3 échouent.
 5. **Configuration et lancement.**
    ```sh
@@ -66,7 +66,7 @@ bun run db:generate  # après modification de src/db/schema.ts
 | `SLACK_ADMIN_CHANNEL` | — | Canal des alertes (facultatif) |
 | `T3_URL` | `http://127.0.0.1:3773` | Serveur T3 |
 | `T3_ROOT_TOKEN` | — | Jeton racine (voir étape 2) |
-| `T3_PROJECT_ID` | — | Projet T3 du code |
+| `T3_PROJECT_ID` | — | Projet T3 du code (id ou nom) |
 | `T3_PROVIDER_INSTANCE` | `claudeAgent` | Instance de provider T3 |
 | `T3_MODEL` | `claude-sonnet-5-5` | Modèle |
 | `T3_EFFORT` | `high` | Effort de raisonnement |

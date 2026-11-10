@@ -5,13 +5,15 @@ import type { TokenManager } from "./token-manager";
 
 import { log } from "./log";
 import { RUN_OUTCOMES, T3ThreadGoneError, type RunOutcome, type T3Port } from "./t3-port";
+import { findProject, type T3Project } from "./t3-project";
 
 export interface T3McpConfig {
     /** e.g. http://127.0.0.1:3773 */
     url: string;
     /** Hands out the full-access token and renews it when T3 rejects it. */
     tokens: TokenManager;
-    projectId: string;
+    /** The project's id or title (see t3-project.ts). */
+    project: string;
     providerInstanceId: string;
     model: string;
     effort: string;
@@ -24,7 +26,7 @@ export class T3ToolError extends Error {
         readonly code: string | undefined,
         message: string,
     ) {
-        super(`${tool}: ${message}`);
+        super(`${tool}: ${message}${code ? ` [${code}]` : ""}`);
         this.name = "T3ToolError";
     }
 }
@@ -52,7 +54,7 @@ interface ThreadReadResult {
 }
 
 /** T3Port over the T3 server's `/mcp` endpoint (MCP Streamable HTTP). */
-export function createT3McpClient(config: T3McpConfig): T3Port {
+export function createT3McpClient(config: T3McpConfig): T3Port & { resolveProjectId(): Promise<string> } {
     interface Session {
         client: Client;
         token: string;
@@ -112,7 +114,30 @@ export function createT3McpClient(config: T3McpConfig): T3Port {
         }
     };
 
+    let projectId: Promise<string> | undefined;
+    const resolveProjectId = () => {
+        projectId ??= (async () => {
+            const projects: T3Project[] = [];
+            let cursor: number | null | undefined;
+            do {
+                const page = await call<{ projects: T3Project[]; nextCursor: number | null }>("t3_project_list", {
+                    limit: 100,
+                    ...(cursor ? { cursor } : {}),
+                });
+                projects.push(...page.projects);
+                cursor = page.nextCursor;
+            } while (cursor);
+            return findProject(projects, config.project);
+        })().catch((error) => {
+            projectId = undefined;
+            throw error;
+        });
+        return projectId;
+    };
+
     return {
+        resolveProjectId,
+
         async uploadImage({ name, mimeType, bytes }) {
             const prepared = await call<{ attachmentId: string; relativeUrl: string }>("t3_attachment_prepare_upload", {
                 upload: { type: "image", name, mimeType, sizeBytes: bytes.length },
@@ -129,7 +154,7 @@ export function createT3McpClient(config: T3McpConfig): T3Port {
 
         async launchThread({ title, message, attachments }) {
             const result = await call<{ threadId: string; runId: string | null }>("t3_thread_launch", {
-                projectId: config.projectId,
+                projectId: await resolveProjectId(),
                 title,
                 message,
                 modelSelection: {

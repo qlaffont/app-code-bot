@@ -35,7 +35,7 @@ const tokens = createTokenManager({
 const t3 = createT3McpClient({
     url: config.t3Url,
     tokens,
-    projectId: config.t3ProjectId,
+    project: config.t3Project,
     providerInstanceId: config.t3ProviderInstanceId,
     model: config.t3Model,
     effort: config.t3Effort,
@@ -46,6 +46,12 @@ const t3 = createT3McpClient({
 const checkToken = () => tokens.getToken().catch(() => undefined);
 await checkToken();
 setInterval(checkToken, TOKEN_CHECK_INTERVAL_MS);
+
+// A wrong T3_PROJECT_ID makes every question fail with a vague T3 error: stop now and say why.
+const projectId = await t3.resolveProjectId().catch((error: unknown) => {
+    log("error", "invalid T3_PROJECT_ID", { error });
+    process.exit(1);
+});
 
 await slack.start(
     createMentionHandler({
@@ -65,7 +71,7 @@ await slack.start(
         pollIntervalMs: POLL_INTERVAL_MS,
     }),
 );
-log("info", "app-code-bot ready", { project: config.t3ProjectId, model: config.t3Model });
+log("info", "app-code-bot ready", { project: config.t3Project, projectId, model: config.t3Model });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, async () => {

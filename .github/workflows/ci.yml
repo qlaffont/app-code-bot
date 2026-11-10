@@ -57,6 +57,9 @@ jobs:
             - name: Install dependencies
               run: bun install --frozen-lockfile
 
+            - name: Install ffmpeg
+              run: apt-get update && apt-get install -y --no-install-recommends ffmpeg
+
             - name: Tests
               run: bun test
 

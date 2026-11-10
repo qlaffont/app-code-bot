@@ -27,6 +27,8 @@ export interface MentionHandlerDeps {
     store: ThreadStore;
     /** Reads the captures the agent asks to publish. */
     media: MediaReader;
+    /** Brings a recording to the published video format (1080p, 30 fps, high bitrate). */
+    normalizeVideo: (video: MediaFile) => Promise<MediaFile>;
     systemPrompt: string;
     botUserId: string;
     workspaceTeamId: string;
@@ -283,7 +285,8 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
             try {
                 const file = await deps.media.read(path);
                 const sameKind = files.filter((published) => published.kind === file.kind).length;
-                if (sameKind < MAX_PUBLISHED[file.kind]) files.push(file);
+                if (sameKind >= MAX_PUBLISHED[file.kind]) continue;
+                files.push(file.kind === "video" ? await normalizeOrKeep(file) : file);
             } catch (error) {
                 log("warn", "capture not published", { error, path });
             }
@@ -292,6 +295,15 @@ export function createMentionHandler(deps: MentionHandlerDeps): (mention: Mentio
         await slack
             .uploadFiles({ ...target, files })
             .catch((error) => log("error", "captures upload failed", { error, count: files.length }));
+    }
+
+    async function normalizeOrKeep(video: MediaFile): Promise<MediaFile> {
+        try {
+            return await deps.normalizeVideo(video);
+        } catch (error) {
+            log("warn", "video not re-encoded, publishing it as recorded", { error, file: video.filename });
+            return video;
+        }
     }
 
     /**

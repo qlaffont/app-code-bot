@@ -37,7 +37,7 @@ Mise à jour : `git pull && docker compose up -d --build`.
 
 ## Comportement
 
-- Mention dans un canal → « 🔎 Je fouille le code… » dans le fil → remplacé par `@auteur <réponse>`, suivi des captures éventuelles (3 images et 1 vidéo au maximum).
+- Mention dans un canal → « 🔎 Je fouille le code… » dans le fil → remplacé par `@auteur <réponse>`, suivi des captures éventuelles (3 images et 1 vidéo au maximum). Les vidéos sont réencodées par le bot (ffmpeg) en H.264 1920x1080, 30 images/s, environ 8 Mbit/s.
 - Une réponse sans capture se termine par une proposition : « Si tu souhaites une vidéo ou des captures d'écran du parcours, indique-le-moi en me mentionnant dans ce fil. » Une demande de capture ou de vidéo (message contenant « vidéo », « capture », « screenshot »…) n'a pas de limite de temps : l'agent doit construire et lancer toute la stack, et le bot prévient que ça peut prendre plusieurs minutes.
 - Les images jointes au message (et, pour un nouveau thread, jusqu'à 5 images postées plus haut dans le fil) sont transmises à l'agent. Vidéos, PDF et images de plus de 10 Mo sont ignorés et signalés.
 - Nouvelle mention dans le même fil → même thread T3 (contexte conservé), une question à la fois. Si ce thread n'existe plus, un nouveau est créé avec les 20 derniers messages du fil.

@@ -25,17 +25,23 @@ const mention = (overrides: Partial<Mention> = {}): Mention => ({
 let slack: FakeSlack;
 let t3: FakeT3;
 let media: FakeMediaReader;
+let failVideoEncoding: boolean;
 let handle: (mention: Mention) => Promise<void>;
 
 beforeEach(() => {
     slack = new FakeSlack();
     t3 = new FakeT3();
     media = new FakeMediaReader();
+    failVideoEncoding = false;
     handle = createMentionHandler({
         slack,
         t3,
         store: createThreadStore(createDatabase(":memory:")),
         media,
+        normalizeVideo: async (video) => {
+            if (failVideoEncoding) throw new Error("ffmpeg failed");
+            return { ...video, filename: video.filename.replace(/\.[^.]+$/, ".mp4") };
+        },
         systemPrompt: SYSTEM_PROMPT,
         botUserId: "UBOT",
         workspaceTeamId: "TAPP",
@@ -442,9 +448,19 @@ describe("captures produced by the agent", () => {
             {
                 channel: "CDEV",
                 threadTs: "1000.1",
-                filenames: ["facture.png", "parcours.webm"],
+                filenames: ["facture.png", "parcours.mp4"],
             },
         ]);
+    });
+
+    test("a video that can't be re-encoded is published as recorded", async () => {
+        media.files.set("/t3/attachments/parcours.webm", "webm");
+        failVideoEncoding = true;
+        t3.script.push({ outcome: "completed", answer: "Le parcours.\n[[media: /t3/attachments/parcours.webm]]" });
+
+        await handle(mention());
+
+        expect(slack.uploaded[0]?.filenames).toEqual(["parcours.webm"]);
     });
 
     test("files outside the T3 capture folders are never published", async () => {
@@ -472,7 +488,7 @@ describe("captures produced by the agent", () => {
 
         await handle(mention());
 
-        expect(slack.uploaded[0]?.filenames).toEqual(["1.png", "a.webm", "2.png", "3.png"]);
+        expect(slack.uploaded[0]?.filenames).toEqual(["1.png", "a.mp4", "2.png", "3.png"]);
     });
 });
 

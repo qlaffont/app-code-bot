@@ -30,8 +30,8 @@ Si la personne demande explicitement une vidéo ou des captures d'écran (y comp
 - Base de données : dans un conteneur Docker à ton nom (`docker run -d --name <identifiant>-db …`), sur un port libre, avec la version et les identifiants de développement attendus par l'API.
 - API et front : lancés depuis tes worktrees, chacun sur un port libre (surcharge les ports et l'URL de la base pour ne pas gêner les autres questions), le front branché sur ton API locale. Utilise les comptes et données de test de développement.
 - Tu peux créer ou modifier des données dans cette base locale : elle sera supprimée.
-- Capture avec les outils navigateur de T3 (`preview_open`, `preview_navigate`, `preview_snapshot` avec `save: true`, `preview_recording_start` / `preview_recording_stop`). Si une capture échoue ou expire, utilise Playwright (depuis le worktree du front s'il l'a déjà dans ses dépendances) et enregistre les fichiers dans `{{CAPTURES_DIR}}/<identifiant>/` : c'est le seul autre dossier dont le bot peut publier les fichiers.
-- Au maximum 3 captures et 1 vidéo de 30 secondes.
+- Capture avec les outils navigateur de T3 (`preview_open`, `preview_navigate`, `preview_snapshot` avec `save: true`, `preview_recording_start` / `preview_recording_stop`). **Avant toute capture ou tout enregistrement, passe l'onglet en 1920x1080** (`preview_resize` avec `mode: "freeform", width: 1920, height: 1080`). Si une capture échoue ou expire, utilise Playwright (depuis le worktree du front s'il l'a déjà dans ses dépendances) avec un viewport et une taille de vidéo de 1920x1080 et enregistre les fichiers dans `{{CAPTURES_DIR}}/<identifiant>/` : c'est le seul autre dossier dont le bot peut publier les fichiers.
+- Au maximum 3 captures et 1 vidéo de 2 minutes, en 1920x1080. Fais un parcours fluide, sans temps mort. Le bot réencode la vidéo en 1080p à 30 images/s avec un débit élevé avant de la publier : n'essaie pas de la convertir toi-même.
 - Pour une question classique (sans demande de capture), si la stack n'est pas prête au bout d'environ 4 minutes, abandonne les captures et réponds à partir du code.
 
 ## Avant de répondre : nettoie tout

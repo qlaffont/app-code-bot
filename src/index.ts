@@ -11,6 +11,7 @@ import { createT3McpClient } from "./t3-mcp";
 import { issueFullAccessToken } from "./t3-oauth";
 import { createThreadStore } from "./thread-store";
 import { createTokenManager } from "./token-manager";
+import { normalizeVideo } from "./video";
 
 const POLL_INTERVAL_MS = 15_000;
 const TOKEN_CHECK_INTERVAL_MS = 6 * 60 * 60_000;
@@ -64,6 +65,7 @@ await slack.start(
             { dir: join(config.t3UserdataDir, "attachments"), kinds: ["video"] },
             { dir: config.capturesDir, kinds: ["image", "video"] },
         ]),
+        normalizeVideo,
         systemPrompt,
         botUserId: slack.botUserId,
         workspaceTeamId: slack.workspaceTeamId,

@@ -1,12 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { purgeOldCaptures } from "./captures-retention";
 import { loadConfig } from "./config";
 import { createDatabase } from "./db/database";
 import { log } from "./log";
 import { createMediaReader } from "./media-reader";
 import { createMentionHandler } from "./mention-handler";
 import { connectSlack } from "./slack-bolt";
+import { renderSystemPrompt } from "./system-prompt";
 import { createT3McpClient } from "./t3-mcp";
 import { issueFullAccessToken } from "./t3-oauth";
 import { createThreadStore } from "./thread-store";
@@ -15,13 +17,13 @@ import { normalizeVideo } from "./video";
 
 const POLL_INTERVAL_MS = 15_000;
 const TOKEN_CHECK_INTERVAL_MS = 6 * 60 * 60_000;
+const CAPTURES_PURGE_INTERVAL_MS = 24 * 60 * 60_000;
+const CAPTURES_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 
 const config = loadConfig();
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
-const systemPrompt = (await Bun.file(config.systemPromptPath).text())
-    .replaceAll("{{CAPTURES_DIR}}", config.capturesDir)
-    .trim();
+const systemPrompt = renderSystemPrompt(await Bun.file(config.systemPromptPath).text(), config);
 const db = createDatabase(config.dbPath);
 const slack = await connectSlack({
     botToken: config.slackBotToken,
@@ -47,6 +49,17 @@ const t3 = createT3McpClient({
 const checkToken = () => tokens.getToken().catch(() => undefined);
 await checkToken();
 setInterval(checkToken, TOKEN_CHECK_INTERVAL_MS);
+
+// Captures are posted to Slack right away: keep a week for inspection, then free the disk.
+const purgeCaptures = () =>
+    purgeOldCaptures(config.capturesDir, CAPTURES_MAX_AGE_MS)
+        .then(({ deleted, failed }) => {
+            if (deleted.length || failed.length)
+                log("info", "old captures purged", { deleted: deleted.length, failed });
+        })
+        .catch((error: unknown) => log("warn", "captures purge failed", { error }));
+await purgeCaptures();
+setInterval(purgeCaptures, CAPTURES_PURGE_INTERVAL_MS);
 
 // A wrong T3_PROJECT_ID makes every question fail with a vague T3 error: stop now and say why.
 const projectId = await t3.resolveProjectId().catch((error: unknown) => {

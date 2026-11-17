@@ -16,7 +16,13 @@ export interface Config {
     t3UserdataDir: string;
     /** Folder the agent writes its own captures to (Playwright fallback). */
     capturesDir: string;
+    /** Folder holding the agent's builds, one per repository and commit. */
+    buildCacheDir: string;
+    /** Environment named in a question → branch to read (e.g. staging → staging). */
+    branchMap: Record<string, string>;
 }
+
+const DEFAULT_BRANCH_MAP = "prod:main,demo:main,staging:staging,dev:dev";
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
     const missing: string[] = [];
@@ -42,10 +48,26 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         systemPromptPath: optional("SYSTEM_PROMPT_PATH", "./prompts/system.md"),
         t3UserdataDir: required("T3_USERDATA_DIR"),
         capturesDir: required("CAPTURES_DIR"),
+        buildCacheDir: required("BUILD_CACHE_DIR"),
+        branchMap: {},
     };
     if (missing.length) throw new Error(`Missing environment variables: ${missing.join(", ")}`);
+    config.branchMap = parseBranchMap(optional("BRANCH_MAP", DEFAULT_BRANCH_MAP));
     if (!Number.isFinite(config.answerTimeoutMs) || config.answerTimeoutMs <= 0) {
         throw new Error("ANSWER_TIMEOUT_MS must be a positive number of milliseconds");
     }
     return config;
+}
+
+/** Parses `env:branch,env:branch` (e.g. `prod:main,staging:staging`). */
+function parseBranchMap(value: string): Record<string, string> {
+    const map: Record<string, string> = {};
+    for (const pair of value.split(",")) {
+        const [env, branch, ...rest] = pair.split(":").map((part) => part.trim());
+        if (!env || !branch || rest.length) {
+            throw new Error(`BRANCH_MAP must look like "prod:main,staging:staging", got "${value}"`);
+        }
+        map[env] = branch;
+    }
+    return map;
 }

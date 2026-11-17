@@ -26,8 +26,9 @@ Les décisions de conception sont dans [docs/SPEC.md](docs/SPEC.md).
    ```
    C'est l'identifiant le plus sensible du système : il ne doit vivre que dans `.env` sur cette machine.
 3. **Projet T3.** `T3_PROJECT_ID` est l'id ou le nom du projet T3 qui contient les dépôts de l'application (`t3 project list`).
-4. **Captures.** Dans les réglages T3, activez l'accès navigateur pour les agents (*enableAgentBrowserAccess*). Créez le dossier `CAPTURES_DIR`, accessible en écriture par l'utilisateur qui fait tourner T3 : l'agent y dépose ses captures Playwright quand les outils navigateur de T3 échouent.
-5. **Configuration et lancement.**
+4. **Captures.** Dans les réglages T3, activez l'accès navigateur pour les agents (*enableAgentBrowserAccess*). Créez le dossier `CAPTURES_DIR`, accessible en écriture par l'utilisateur qui fait tourner T3 : l'agent y dépose ses captures Playwright quand les outils navigateur de T3 échouent. Le bot supprime chaque jour les captures de plus de 7 jours : l'utilisateur du conteneur (`bun`, uid 1000) doit pouvoir y supprimer des fichiers.
+5. **Cache de build.** Créez le dossier `BUILD_CACHE_DIR`, accessible en écriture par l'utilisateur qui fait tourner T3, et vérifiez que `flock` (util-linux) est installé. L'agent y garde un build par dépôt et par commit (voir « Cache de build » ci-dessous).
+6. **Configuration et lancement.**
    ```sh
    cp .env.example .env   # puis remplir
    docker compose up -d --build
@@ -49,7 +50,15 @@ Mise à jour : `git pull && docker compose up -d --build`.
 - Le thread T3 est clôturé (*settled*) après chaque réponse ; une nouvelle question le rouvre.
 - Si le jeton T3 ne peut pas être renouvelé, une alerte est postée dans `SLACK_ADMIN_CHANNEL`.
 
-Le prompt de l'agent est [prompts/system.md](prompts/system.md) (`{{CAPTURES_DIR}}` y est remplacé au démarrage). Il est monté dans le conteneur : après modification, `docker compose restart`.
+### Version du code et cache de build
+
+- À chaque question (suivis compris), l'agent fait `git fetch` et travaille sur le dernier commit de `origin/<branche>` (`BRANCH_MAP`, `main` par défaut), jamais sur le checkout local. La version n'apparaît dans la réponse que si le fetch a échoué (date et SHA de la version utilisée) ou si le code a changé depuis la réponse précédente du fil.
+- Pour lancer l'app, l'agent construit chaque dépôt une seule fois par commit dans `BUILD_CACHE_DIR/<dépôt>/<sha>` (worktree détaché, marqueur `.ready`, commandes dans `.recipe`), en suivant le README du dépôt mais en produisant des artefacts lancés sans écrire dans l'entrée (`vite preview`, `java -jar`). Un verrou `flock` par entrée : exclusif pour construire, partagé pour lancer. Si l'app ne démarre pas depuis une entrée, une reconstruction, puis le mode développement sur une copie.
+- Après chaque nouveau build, l'agent garde les 5 entrées les plus récemment utilisées par dépôt, plus le dernier commit de chaque branche de `BRANCH_MAP`, et supprime les autres si elles ne sont pas utilisées.
+- Chaque lancement ajoute une ligne à `BUILD_CACHE_DIR/stats.log` (date, dépôt, SHA, `hit`/`miss`/`rebuild`/`dev`, durée du build, délai de démarrage) : c'est là qu'on vérifie que le cache sert.
+- Ces règles sont des consignes du prompt, pas du code : leur respect dépend de l'agent.
+
+Le prompt de l'agent est [prompts/system.md](prompts/system.md) (`{{CAPTURES_DIR}}`, `{{BUILD_CACHE_DIR}}` et `{{BRANCH_MAP}}` y sont remplacés au démarrage ; tout autre `{{…}}` empêche le bot de démarrer). Il est monté dans le conteneur : après modification, `docker compose restart`.
 
 ## Développement
 
@@ -73,7 +82,9 @@ bun run db:generate  # après modification de src/db/schema.ts
 | `T3_MODEL` | `claude-sonnet-5-5` | Modèle |
 | `T3_EFFORT` | `high` | Effort de raisonnement |
 | `T3_USERDATA_DIR` | — | Dossier de données T3 (compose : monte `attachments/` et `browser-artifacts/`) |
-| `CAPTURES_DIR` | — | Dossier des captures Playwright de l'agent |
+| `CAPTURES_DIR` | — | Dossier des captures Playwright de l'agent (purgé après 7 jours) |
+| `BUILD_CACHE_DIR` | — | Cache de build de l'agent (un build par dépôt et par commit) |
+| `BRANCH_MAP` | `prod:main,demo:main,staging:staging,dev:dev` | Environnement cité dans la question → branche lue |
 | `ANSWER_TIMEOUT_MS` | `480000` | Délai maximum de réponse |
 | `DB_PATH` | `/data/app-code-bot.sqlite` (Docker) | Base SQLite (fils Slack → threads T3, jeton T3) |
 | `SYSTEM_PROMPT_PATH` | `./prompts/system.md` | Prompt de l'agent |

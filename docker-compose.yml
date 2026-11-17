@@ -12,7 +12,8 @@ services:
       # The agent's captures, mounted at the same paths so the agent's paths resolve.
       - ${T3_USERDATA_DIR:?set T3_USERDATA_DIR in .env}/attachments:${T3_USERDATA_DIR}/attachments:ro
       - ${T3_USERDATA_DIR}/browser-artifacts:${T3_USERDATA_DIR}/browser-artifacts:ro
-      - ${CAPTURES_DIR:?set CAPTURES_DIR in .env}:${CAPTURES_DIR}:ro
+      # Writable: the bot deletes captures older than 7 days.
+      - ${CAPTURES_DIR:?set CAPTURES_DIR in .env}:${CAPTURES_DIR}
 
 volumes:
   bot-data:

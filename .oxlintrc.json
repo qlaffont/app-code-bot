@@ -1,0 +1,11 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": ["import", "oxc", "promise", "typescript"],
+    "rules": {
+        "typescript/no-explicit-any": "error",
+        "typescript/no-unused-vars": [
+            "error",
+            { "args": "all", "argsIgnorePattern": "^_", "reportUsedIgnorePattern": true }
+        ]
+    }
+}
